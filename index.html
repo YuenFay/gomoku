@@ -919,14 +919,11 @@
   };
 
   // ── PeerJS ─────────────────────────────────────
-  // Multiple signaling relays for reliability (no VPN needed)
   const SIGNAL_HOSTS = [
     { host: '0.peerjs.com', port: 443, secure: true },
     { host: 'peerjs.rickyweipan.com', port: 443, secure: true },
   ];
-  let sigIdx = 0;
 
-  // Generate short human-friendly room code
   function shortCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let s = '';
@@ -934,10 +931,9 @@
     return s;
   }
 
-  function initPeer(forceId) {
-    if (peer && !peer.destroyed) return;
-    const sig = SIGNAL_HOSTS[sigIdx % SIGNAL_HOSTS.length];
-    peer = new Peer(forceId || undefined, {
+  function tryPeer(forceId, sigIdx, onOk, onFail) {
+    const sig = SIGNAL_HOSTS[sigIdx];
+    const p = new Peer(forceId || undefined, {
       debug: 0,
       host: sig.host,
       port: sig.port,
@@ -949,17 +945,39 @@
         ],
       },
     });
-    peer.on('error', err => {
-      console.error('Peer error:', err);
-      // Try next fallback server
-      if (sigIdx < SIGNAL_HOSTS.length - 1) {
-        sigIdx++;
-        if (peer && !peer.destroyed) peer.destroy();
-        peer = null;
-        $('onlineErr').textContent = '切换节点中…';
-        initPeer();
+
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      p.destroy();
+      if (sigIdx + 1 < SIGNAL_HOSTS.length) {
+        $('onlineErr').textContent = '节点超时，切换中…';
+        tryPeer(forceId, sigIdx + 1, onOk, onFail);
       } else {
-        $('onlineErr').textContent = '网络不通，请检查是否开了代理，或关闭代理试试';
+        onFail('连接超时，请确认双方网络正常，检查 VPN/代理设置');
+      }
+    }, 8000);
+
+    p.on('open', id => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      peer = p;
+      onOk(id);
+    });
+
+    p.on('error', err => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      p.destroy();
+      console.error('Peer error:', err);
+      if (sigIdx + 1 < SIGNAL_HOSTS.length) {
+        $('onlineErr').textContent = '节点失败，切换中…';
+        tryPeer(forceId, sigIdx + 1, onOk, onFail);
+      } else {
+        onFail('网络不通，请确认双方网络正常，检查 VPN/代理设置');
       }
     });
   }
@@ -971,41 +989,52 @@
 
   window.createRoom = function() {
     $('onlineErr').textContent = '';
+    $('roomInfo').style.display = 'flex';
+    $('roomCode').textContent = '…';
     const code = shortCode();
-    initPeer('gomoku-' + code);
-    peer.on('open', id => {
-      $('roomCode').textContent = code;
-      $('roomInfo').style.display = 'flex';
-      amHost = true;
-      myPiece = BLACK;
-      mode = 'online';
-
-      peer.on('connection', c => {
-        if (conn) { c.close(); return; }
-        conn = c;
-        setupConnection();
-      });
-    });
+    tryPeer('gomoku-' + code, 0,
+      // onOk
+      id => {
+        $('roomCode').textContent = code;
+        amHost = true;
+        myPiece = BLACK;
+        mode = 'online';
+        peer.on('connection', c => {
+          if (conn) { c.close(); return; }
+          conn = c;
+          setupConnection();
+        });
+      },
+      // onFail
+      msg => {
+        $('roomInfo').style.display = 'none';
+        $('onlineErr').textContent = msg;
+      }
+    );
   };
 
   window.joinRoom = function() {
     const code = $('roomInput').value.trim().toUpperCase();
     if (!code) { $('onlineErr').textContent = '请输入房间码'; return; }
     if (code.length < 4 || code.length > 8) { $('onlineErr').textContent = '房间码不对'; return; }
-    initPeer();
-    $('onlineErr').textContent = '';
-    peer.on('open', () => {
-      amHost = false;
-      myPiece = WHITE;
-      mode = 'online';
-      const c = peer.connect('gomoku-' + code, { reliable: true });
-      conn = c;
-      c.on('open', () => { setupConnection(); });
-      c.on('error', err => {
-        $('onlineErr').textContent = '找不到房间，请检查房间码';
-        console.error(err);
-      });
-    });
+    $('onlineErr').textContent = '正在连接…';
+    tryPeer(undefined, 0,
+      // onOk
+      id => {
+        amHost = false;
+        myPiece = WHITE;
+        mode = 'online';
+        const c = peer.connect('gomoku-' + code, { reliable: true });
+        conn = c;
+        c.on('open', () => { $('onlineErr').textContent = ''; setupConnection(); });
+        c.on('error', err => {
+          $('onlineErr').textContent = '找不到房间，请确认房间码正确且对方还在等待';
+          console.error(err);
+        });
+      },
+      // onFail
+      msg => { $('onlineErr').textContent = msg; }
+    );
   };
 
   function setupConnection() {
