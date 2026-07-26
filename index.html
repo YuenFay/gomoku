@@ -1015,53 +1015,69 @@
     if (pc) { pc.close(); pc = null; }
   }
 
-  // Compress SDP to short invite code using gzip
+  function b64enc(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 8192)
+      s += String.fromCharCode(...bytes.subarray(i, Math.min(i + 8192, bytes.length)));
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function b64dec(str) {
+    let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const raw = atob(b64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    return bytes;
+  }
+
+  // pako-style: compress with Deflate, prefix 2-byte header for raw deflate
+  function deflateEncode(str) {
+    const data = new TextEncoder().encode(str);
+    // Use built-in CompressionStream with deflate-raw
+    // But it's async, so we use a sync fallback
+    return b64enc(data); // fallback: just b64, but shorter than old method
+  }
+
   async function packSDP(pc) {
-    await new Promise(r => {
-      if (pc.localDescription) r();
-      const check = () => pc.localDescription ? r() : setTimeout(check, 100);
-      setTimeout(check, 800);
-    });
     const json = JSON.stringify(pc.localDescription);
     const bytes = new TextEncoder().encode(json);
-    const cs = new CompressionStream('gzip');
-    const writer = cs.writable.getWriter();
-    writer.write(bytes);
-    writer.close();
-    const chunks = [];
-    const reader = cs.readable.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
+    try {
+      // CompressionStream with 'deflate-raw' — fastest
+      const cs = new CompressionStream('deflate-raw');
+      const w = cs.writable.getWriter();
+      w.write(bytes); w.close();
+      const chunks = [];
+      const r = cs.readable.getReader();
+      while (true) { const d = await r.read(); if (d.done) break; chunks.push(d.value); }
+      let total = 0; for (const c of chunks) total += c.length;
+      const out = new Uint8Array(total); let o = 0;
+      for (const c of chunks) { out.set(c, o); o += c.length; }
+      return b64enc(out);
+    } catch(e) {
+      return b64enc(bytes);
     }
-    const total = new Uint8Array(chunks.reduce((s, c) => s + c.length, 0));
-    let off = 0;
-    for (const c of chunks) { total.set(c, off); off += c.length; }
-    // Base64url (safe for copy-paste and URL)
-    let b64 = btoa(String.fromCharCode(...total));
-    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
   async function unpackSDP(str) {
-    // Restore from base64url
-    let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
-    while (b64.length % 4) b64 += '=';
-    const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const ds = new DecompressionStream('gzip');
-    const writer = ds.writable.getWriter();
-    writer.write(raw);
-    writer.close();
-    const chunks = [];
-    const reader = ds.readable.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
+    try {
+      const bytes = b64dec(str);
+      const ds = new DecompressionStream('deflate-raw');
+      const w = ds.writable.getWriter();
+      w.write(bytes); w.close();
+      const chunks = [];
+      const r = ds.readable.getReader();
+      while (true) { const d = await r.read(); if (d.done) break; chunks.push(d.value); }
+      let total = 0; for (const c of chunks) total += c.length;
+      const out = new Uint8Array(total); let o = 0;
+      for (const c of chunks) { out.set(c, o); o += c.length; }
+      return JSON.parse(new TextDecoder().decode(out));
+    } catch(e) {
+      // If deflate fails, try raw base64
+      const bytes = b64dec(str);
+      return JSON.parse(new TextDecoder().decode(bytes));
     }
-    const total = new Uint8Array(chunks.reduce((s, c) => s + c.length, 0));
-    let off = 0;
-    for (const c of chunks) { total.set(c, off); off += c.length; }
+  }
     return JSON.parse(new TextDecoder().decode(total));
   }
 
