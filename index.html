@@ -911,7 +911,7 @@
     gameArea.style.display = 'none';
     $('roomInfo').style.display = 'none';
     $('onlineErr').textContent = '';
-    $('roomInput').value = '';
+    $('inviteInput').value = '';
   };
 
   window.backToLobby = function() {
@@ -936,6 +936,7 @@
   }
 
   let blobId = null;
+  let pollDelay = 4000;
 
   // Maps 6-char room codes to game blob IDs
   const REGISTRY_ID = '019f9fe6-b203-7023-a7f9-2297de9513b8';
@@ -985,9 +986,18 @@
   async function pollLoop() {
     if (!blobId) return;
     try {
-      const msg = await dbGet();
+      const r = await fetch('https://jsonblob.com/api/jsonBlob/' + blobId);
+      if (r.status === 429) {
+        pollDelay = Math.min(pollDelay * 2, 30000);
+        console.warn('Rate limited, backing off to ' + pollDelay + 'ms');
+        pollTimer = setTimeout(pollLoop, pollDelay);
+        return;
+      }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      pollDelay = 4000;
+      const msg = await r.json();
       if (msg && msg.seq > lastSeq) {
-        console.log('Poll got seq:', msg.seq, 'last:', lastSeq, 'data:', msg.data?.type);
+        console.log('Poll got seq:', msg.seq, 'data:', msg.data?.type);
         lastSeq = msg.seq;
         if (msg.data) {
           const d = msg.data;
@@ -1006,7 +1016,7 @@
         }
       }
     } catch(e) { console.error('Poll error:', e); }
-    pollTimer = setTimeout(pollLoop, 1500);
+    pollTimer = setTimeout(pollLoop, pollDelay);
   }
 
   function sendToPeer(obj) {
