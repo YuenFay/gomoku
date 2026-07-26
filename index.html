@@ -345,7 +345,10 @@
     <button class="btn btn-outline" id="btnUndo" disabled>↩ 悔棋</button>
     <button class="btn btn-pink" id="btnNew">🔄 新局</button>
   </div>
-  <div class="friend-badge" id="friendBadge" style="display:none">🔗 已连接：<span id="friendName"></span></div>
+  <div class="friend-badge" id="friendBadge" style="display:none">
+    🔗 <span id="friendName"></span>
+    <button class="btn btn-pink" id="btnCopyRoom" onclick="copyRoomCode()" style="display:none;margin-left:8px;padding:3px 10px;font-size:11px">📋 复制</button>
+  </div>
 </div>
 
 <script>
@@ -387,10 +390,6 @@
   let mode = null;        // 'ai' | 'online'
   let myPiece = BLACK;    // local player's piece
   let amHost = false;
-
-  // ── PeerJS ─────────────────────────────────────
-  let peer = null;
-  let conn = null;
 
   // ── Init board ─────────────────────────────────
   function freshBoard() {
@@ -843,7 +842,7 @@
       btnUndo.disabled = history.length < 2;
       updateTurnUI();
       draw();
-    } else if (mode === 'online' && conn && history.length >= 1) {
+    } else if (mode === 'online' && history.length >= 1) {
       // Only undo own last move in online mode
       const last = history[history.length - 1];
       if (last[2] === myPiece) {
@@ -924,181 +923,82 @@
     mode = null;
   };
 
-  // ── WebRTC (STUN + public relay for NAT traversal) ──
-  let pc = null;
-  let dc = null;
-  let hostInvite = null;
-  let guestAnswer = null;
-  let connTimeout = null;
+  // ── HTTPS polling relay (fetch, always works on :443) ──
+  let roomCode = '';
+  let pollTimer = null;
+  let lastSeq = 0;
 
-  // STUN + TURN relay servers
-  const ICE_SERVERS = {
-    iceServers: [
-      { urls: ['stun:stun.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
-      {
-        urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turn:openrelay.metered.ca:443?transport=tcp'],
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-    ],
-    iceCandidatePoolSize: 4,
-    iceTransportPolicy: 'all',
-  };
-
-  function startGather(type) {
-    pc = new RTCPeerConnection(ICE_SERVERS);
-    if (type === 'host') {
-      dc = pc.createDataChannel('gomoku', { ordered: true });
-      setupDataChannel(dc);
-    } else {
-      pc.ondatachannel = e => { dc = e.channel; setupDataChannel(dc); };
-    }
-    pc.oniceconnectionstatechange = () => {
-      const s = pc.iceConnectionState;
-      console.log('ICE:', s);
-      if (s === 'failed' || s === 'disconnected') {
-        if (connTimeout) clearTimeout(connTimeout);
-        if (dc && dc.readyState !== 'open') {
-          $('onlineErr').textContent = '连接失败。可能是网络NAT太严，试试换个网络环境';
-        }
-      }
-    };
+  function genCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let s = '';
+    for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+    return s;
   }
 
-  function setupDataChannel(ch) {
-    ch.onopen = () => {
-      if (connTimeout) clearTimeout(connTimeout);
-      onlinePanel.style.display = 'none';
-      gameArea.style.display = 'flex';
-      friendBadge.style.display = 'flex';
-      friendName.textContent = amHost ? '朋友已加入 💕' : '已连接到房间 💕';
-      tagBlack.textContent = myPiece === BLACK ? '⚫ 你' : '⚫ 朋友';
-      tagWhite.textContent = myPiece === WHITE ? '⚪ 你' : '⚪ 朋友';
-      $('onlineErr').textContent = '';
-      resetGame();
-    };
-    ch.onmessage = e => {
-      const data = JSON.parse(e.data);
-      if (data.type === 'move') {
-        onRemoteMove(data.r, data.c);
-      } else if (data.type === 'undo') {
-        const [r, c] = history.pop();
-        board[r][c] = E;
-        lastMove = history.length ? history[history.length - 1].slice(0, 2) : null;
-        myTurn = true;
-        statusText.textContent = '轮到你了～';
-        btnUndo.disabled = history.length < 2;
-        updateTurnUI();
-        draw();
-      } else if (data.type === 'reset') {
-        resetGame();
+  // Write to shared bucket via HTTPS PUT (port 443, always unblocked)
+  function dbPut(key, val) {
+    return fetch('https://kvdb.io/gomoku-' + roomCode + '/' + key, {
+      method: 'PUT',
+      body: JSON.stringify(val),
+      headers: { 'Content-Type': 'application/json' },
+    }).catch(() => {});
+  }
+
+  function dbGet(key) {
+    return fetch('https://kvdb.io/gomoku-' + roomCode + '/' + key)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+  }
+
+  async function pollLoop() {
+    if (!roomCode) return;
+    const msg = await dbGet('msgs');
+    if (msg && msg.seq > lastSeq) {
+      lastSeq = msg.seq;
+      if (msg.data) {
+        const d = msg.data;
+        if (d.type === 'move') {
+          onRemoteMove(d.r, d.c);
+        } else if (d.type === 'undo') {
+          if (history.length) { const [r, c] = history.pop(); board[r][c] = E; }
+          lastMove = history.length ? history[history.length - 1].slice(0, 2) : null;
+          myTurn = true; statusText.textContent = '轮到你了～'; btnUndo.disabled = history.length < 2;
+          updateTurnUI(); draw();
+        } else if (d.type === 'reset') {
+          resetGame();
+        } else if (d.type === 'join') {
+          friendName.textContent = '朋友已加入 💕';
+        }
       }
-    };
-    ch.onclose = () => {
-      dc = null;
-      if (mode === 'online' && gameArea.style.display === 'flex') {
-        statusText.textContent = '💔 连接已断开';
-        statusText.classList.add('lose');
-        gameOver = true;
-        draw();
-      }
-    };
+    }
+    pollTimer = setTimeout(pollLoop, 1500);
   }
 
   function sendToPeer(obj) {
-    if (dc && dc.readyState === 'open') dc.send(JSON.stringify(obj));
+    if (!roomCode) return;
+    dbGet('seq').then(s => {
+      const seq = (s || 0) + 1;
+      dbPut('seq', seq);
+      dbPut('msgs', { seq, data: obj });
+    });
   }
 
   function disconnectPeer() {
-    if (connTimeout) { clearTimeout(connTimeout); connTimeout = null; }
-    if (dc) { dc.close(); dc = null; }
-    if (pc) { pc.close(); pc = null; }
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    roomCode = ''; lastSeq = 0;
   }
 
-  function b64enc(bytes) {
-    let s = '';
-    for (let i = 0; i < bytes.length; i += 8192)
-      s += String.fromCharCode(...bytes.subarray(i, Math.min(i + 8192, bytes.length)));
-    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-
-  function b64dec(str) {
-    let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
-    while (b64.length % 4) b64 += '=';
-    const raw = atob(b64);
-    const bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    return bytes;
-  }
-
-  // pako-style: compress with Deflate, prefix 2-byte header for raw deflate
-  function deflateEncode(str) {
-    const data = new TextEncoder().encode(str);
-    // Use built-in CompressionStream with deflate-raw
-    // But it's async, so we use a sync fallback
-    return b64enc(data); // fallback: just b64, but shorter than old method
-  }
-
-  async function packSDP(pc) {
-    const json = JSON.stringify(pc.localDescription);
-    const bytes = new TextEncoder().encode(json);
-    try {
-      // CompressionStream with 'deflate-raw' — fastest
-      const cs = new CompressionStream('deflate-raw');
-      const w = cs.writable.getWriter();
-      w.write(bytes); w.close();
-      const chunks = [];
-      const r = cs.readable.getReader();
-      while (true) { const d = await r.read(); if (d.done) break; chunks.push(d.value); }
-      let total = 0; for (const c of chunks) total += c.length;
-      const out = new Uint8Array(total); let o = 0;
-      for (const c of chunks) { out.set(c, o); o += c.length; }
-      return b64enc(out);
-    } catch(e) {
-      return b64enc(bytes);
-    }
-  }
-
-  async function unpackSDP(str) {
-    try {
-      const bytes = b64dec(str);
-      const ds = new DecompressionStream('deflate-raw');
-      const w = ds.writable.getWriter();
-      w.write(bytes); w.close();
-      const chunks = [];
-      const r = ds.readable.getReader();
-      while (true) { const d = await r.read(); if (d.done) break; chunks.push(d.value); }
-      let total = 0; for (const c of chunks) total += c.length;
-      const out = new Uint8Array(total); let o = 0;
-      for (const c of chunks) { out.set(c, o); o += c.length; }
-      return JSON.parse(new TextDecoder().decode(out));
-    } catch(e) {
-      // If deflate fails, try raw base64
-      const bytes = b64dec(str);
-      return JSON.parse(new TextDecoder().decode(bytes));
-    }
-  }
-    return JSON.parse(new TextDecoder().decode(total));
-  }
-
+  // ── UI ──
   window.createRoom = function() {
-    $('onlineErr').textContent = '';
-    $('roomInfo').style.display = 'flex';
-    $('joinInfo').style.display = 'none';
-    $('answerInput').value = '';
+    roomCode = genCode(); hostInvite = roomCode;
     amHost = true; myPiece = BLACK; mode = 'online';
-    startGather('host');
-
-    pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(async () => {
-      await new Promise(r => {
-        if (pc.iceGatheringState === 'complete') r();
-        else pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') r(); };
-      });
-      hostInvite = await packSDP(pc);
-      $('onlineErr').textContent = '邀请码已生成，点击下方按钮复制';
-    }).catch(() => {
-      $('onlineErr').textContent = '创建失败，请刷新重试';
-    });
+    onlinePanel.style.display = 'none'; gameArea.style.display = 'flex';
+    friendBadge.style.display = 'flex';
+    friendName.textContent = '房间码：' + roomCode + ' | 等待朋友…';
+    $('btnCopyRoom').style.display = 'inline-block';
+    tagBlack.textContent = '⚫ 你'; tagWhite.textContent = '⚪ 朋友';
+    lastSeq = 0; dbPut('seq', 0); dbPut('msgs', { seq: 0, data: { type: 'init' } });
+    pollLoop(); resetGame();
   };
 
   window.showJoin = function() {
@@ -1106,15 +1006,13 @@
     $('roomInfo').style.display = 'none';
     $('joinInfo').style.display = 'flex';
     $('inviteInput').value = '';
-    $('btnCopyAnswer').disabled = true;
   };
 
   window.copyInvite = function() {
-    if (!hostInvite) { $('onlineErr').textContent = '邀请码还在生成中，稍等一下'; return; }
+    if (!hostInvite) return;
     navigator.clipboard.writeText(hostInvite).then(() => {
       $('onlineErr').textContent = '✅ 已复制，发给朋友吧！';
     }).catch(() => {
-      // fallback: use textarea
       const ta = document.createElement('textarea');
       ta.value = hostInvite; document.body.appendChild(ta);
       ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
@@ -1122,71 +1020,48 @@
     });
   };
 
-  window.finishHost = async function() {
-    const ans = $('answerInput').value.trim();
-    if (!ans) { $('onlineErr').textContent = '请粘贴朋友的回复码'; return; }
-    try {
-      const remoteDesc = await unpackSDP(ans);
-      pc.setRemoteDescription(new RTCSessionDescription(remoteDesc)).then(() => {
-        $('onlineErr').textContent = '连接中…（最长等待30秒）';
-        connTimeout = setTimeout(() => {
-          if (dc && dc.readyState !== 'open') {
-            $('onlineErr').textContent = '连接超时。请确认双方都未开VPN，试试手机热点';
-          }
-        }, 30000);
-      }).catch(e => {
-        $('onlineErr').textContent = '回复码无效';
-      });
-    } catch(e) { $('onlineErr').textContent = '回复码格式不对'; }
-  };
+  window.finishHost = function() {};
+  window.copyAnswer = function() {};
 
-  window.acceptInvite = async function() {
-    const inv = $('inviteInput').value.trim();
-    if (!inv) { $('onlineErr').textContent = '请先粘贴朋友的邀请码'; return; }
-    try {
-      const remoteDesc = await unpackSDP(inv);
-      amHost = false; myPiece = WHITE; mode = 'online';
-      startGather('guest');
-
-      pc.setRemoteDescription(new RTCSessionDescription(remoteDesc)).then(() => {
-        return pc.createAnswer();
-      }).then(answer => {
-        return pc.setLocalDescription(answer);
-      }).then(async () => {
-        await new Promise(r => {
-          if (pc.iceGatheringState === 'complete') r();
-          else pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') r(); };
-        });
-        guestAnswer = await packSDP(pc);
-        $('btnCopyAnswer').disabled = false;
-        $('onlineErr').textContent = '回复码已生成';
-      }).catch(e => {
-        $('onlineErr').textContent = '邀请码无效';
-      });
-    } catch(e) { $('onlineErr').textContent = '邀请码格式不对'; }
-  };
-
-  window.copyAnswer = function() {
-    if (!guestAnswer) return;
-    navigator.clipboard.writeText(guestAnswer).then(() => {
-      $('onlineErr').textContent = '✅ 已复制，发给朋友吧！';
-    }).catch(() => {
-      navigator.clipboard.writeText(guestAnswer);
-      $('onlineErr').textContent = '✅ 已复制，发给朋友吧！';
+  window.acceptInvite = function() {
+    const code = $('inviteInput').value.trim().toUpperCase();
+    if (!code) { $('onlineErr').textContent = '请输入6位房间码'; return; }
+    roomCode = code; hostInvite = code;
+    amHost = false; myPiece = WHITE; mode = 'online';
+    onlinePanel.style.display = 'none'; gameArea.style.display = 'flex';
+    friendBadge.style.display = 'flex';
+    friendName.textContent = '已加入房间 💕';
+    tagBlack.textContent = '⚫ 朋友'; tagWhite.textContent = '⚪ 你';
+    dbGet('msgs').then(m => {
+      lastSeq = (m && m.seq) ? m.seq + 1 : 0;
+      dbPut('msgs', { seq: lastSeq, data: { type: 'join' } });
     });
+    pollLoop(); resetGame();
   };
 
   window.cancelRoom = function() {
     disconnectPeer();
     $('roomInfo').style.display = 'none';
     $('joinInfo').style.display = 'none';
-    hostInvite = null;
-    guestAnswer = null;
-    mode = null;
+    $('btnCopyRoom').style.display = 'none';
+    hostInvite = null; mode = null;
+  };
+
+  window.copyRoomCode = function() {
+    if (!hostInvite) return;
+    navigator.clipboard.writeText(hostInvite).then(() => {
+      const btn = $('btnCopyRoom');
+      const orig = btn.textContent;
+      btn.textContent = '✅ 已复制';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    }).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = hostInvite; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    });
   };
 
   // ── Start ──────────────────────────────────────
-  // Show lobby by default
   lobby.style.display = 'flex';
   onlinePanel.style.display = 'none';
   gameArea.style.display = 'none';
