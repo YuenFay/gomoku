@@ -924,30 +924,19 @@
     mode = null;
   };
 
-  // ── Pure WebRTC (TURN relay for NAT traversal) ──
+  // ── WebRTC (STUN + public relay for NAT traversal) ──
   let pc = null;
   let dc = null;
   let hostInvite = null;
   let guestAnswer = null;
+  let connTimeout = null;
 
+  // STUN + TURN relay servers
   const ICE_SERVERS = {
     iceServers: [
-      // Google STUN (address discovery)
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      // Metered TURN relay (free tier, works in China)
+      { urls: ['stun:stun.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
       {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turn:openrelay.metered.ca:443?transport=tcp'],
         username: 'openrelayproject',
         credential: 'openrelayproject',
       },
@@ -964,17 +953,21 @@
     } else {
       pc.ondatachannel = e => { dc = e.channel; setupDataChannel(dc); };
     }
-    // Log connection progress
     pc.oniceconnectionstatechange = () => {
-      const state = pc.iceConnectionState;
-      if (state === 'failed' || state === 'disconnected') {
-        console.warn('ICE state:', state);
+      const s = pc.iceConnectionState;
+      console.log('ICE:', s);
+      if (s === 'failed' || s === 'disconnected') {
+        if (connTimeout) clearTimeout(connTimeout);
+        if (dc && dc.readyState !== 'open') {
+          $('onlineErr').textContent = '连接失败。可能是网络NAT太严，试试换个网络环境';
+        }
       }
     };
   }
 
   function setupDataChannel(ch) {
     ch.onopen = () => {
+      if (connTimeout) clearTimeout(connTimeout);
       onlinePanel.style.display = 'none';
       gameArea.style.display = 'flex';
       friendBadge.style.display = 'flex';
@@ -1017,17 +1010,16 @@
   }
 
   function disconnectPeer() {
+    if (connTimeout) { clearTimeout(connTimeout); connTimeout = null; }
     if (dc) { dc.close(); dc = null; }
     if (pc) { pc.close(); pc = null; }
   }
 
-  function packSDP(pc, role) {
-    // Wait a moment for ICE gathering
+  function packSDP(pc) {
     return new Promise(resolve => {
       const check = () => {
         if (pc.localDescription) {
-          const raw = btoa(unescape(encodeURIComponent(JSON.stringify(pc.localDescription))));
-          resolve(raw);
+          resolve(btoa(unescape(encodeURIComponent(JSON.stringify(pc.localDescription)))));
         } else {
           setTimeout(check, 200);
         }
@@ -1040,25 +1032,23 @@
     return JSON.parse(decodeURIComponent(escape(atob(str))));
   }
 
-  // ── UI: Create Room (Host is BLACK, first mover) ──
   window.createRoom = function() {
     $('onlineErr').textContent = '';
     $('roomInfo').style.display = 'flex';
     $('joinInfo').style.display = 'none';
     $('answerInput').value = '';
-    amHost = true;
-    myPiece = BLACK;
-    mode = 'online';
+    amHost = true; myPiece = BLACK; mode = 'online';
     startGather('host');
 
     pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(async () => {
-      // Wait for ICE gathering
       await new Promise(r => {
         if (pc.iceGatheringState === 'complete') r();
         else pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') r(); };
       });
       hostInvite = await packSDP(pc);
       $('onlineErr').textContent = '邀请码已生成，点击下方按钮复制';
+    }).catch(() => {
+      $('onlineErr').textContent = '创建失败，请刷新重试';
     });
   };
 
@@ -1075,7 +1065,10 @@
     navigator.clipboard.writeText(hostInvite).then(() => {
       $('onlineErr').textContent = '✅ 已复制，发给朋友吧！';
     }).catch(() => {
-      navigator.clipboard.writeText(hostInvite);
+      // fallback: use textarea
+      const ta = document.createElement('textarea');
+      ta.value = hostInvite; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
       $('onlineErr').textContent = '✅ 已复制，发给朋友吧！';
     });
   };
@@ -1086,13 +1079,16 @@
     try {
       const remoteDesc = unpackSDP(ans);
       pc.setRemoteDescription(new RTCSessionDescription(remoteDesc)).then(() => {
-        $('onlineErr').textContent = '连接中…';
+        $('onlineErr').textContent = '连接中…（最长等待30秒）';
+        connTimeout = setTimeout(() => {
+          if (dc && dc.readyState !== 'open') {
+            $('onlineErr').textContent = '连接超时。请确认双方都未开VPN，试试手机热点';
+          }
+        }, 30000);
       }).catch(e => {
-        $('onlineErr').textContent = '回复码无效：' + e.message;
+        $('onlineErr').textContent = '回复码无效';
       });
-    } catch(e) {
-      $('onlineErr').textContent = '回复码格式不对';
-    }
+    } catch(e) { $('onlineErr').textContent = '回复码格式不对'; }
   };
 
   window.acceptInvite = function() {
@@ -1100,9 +1096,7 @@
     if (!inv) { $('onlineErr').textContent = '请先粘贴朋友的邀请码'; return; }
     try {
       const remoteDesc = unpackSDP(inv);
-      amHost = false;
-      myPiece = WHITE;
-      mode = 'online';
+      amHost = false; myPiece = WHITE; mode = 'online';
       startGather('guest');
 
       pc.setRemoteDescription(new RTCSessionDescription(remoteDesc)).then(() => {
@@ -1118,10 +1112,10 @@
         $('btnCopyAnswer').disabled = false;
         $('onlineErr').textContent = '回复码已生成';
       }).catch(e => {
-        $('onlineErr').textContent = '邀请码无效：' + e.message;
+        $('onlineErr').textContent = '邀请码无效';
       });
-    } catch(e) {
-      $('onlineErr').textContent = '邀请码格式不对';
+    } catch(e) { $('onlineErr').textContent = '邀请码格式不对'; }
+  };
     }
   };
 
