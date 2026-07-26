@@ -315,8 +315,8 @@
     <button class="btn btn-lavender" onclick="joinRoom()">加入</button>
   </div>
   <div id="roomInfo" style="display:none;flex-direction:column;align-items:center;gap:8px">
-    <div style="font-size:12px;color:var(--text2)">分享这个房间码给朋友：</div>
-    <div class="code-display" id="roomCode"></div>
+    <div style="font-size:12px;color:var(--text2)">点击复制房间码：</div>
+    <div class="code-display" id="roomCode" onclick="copyCode()" style="cursor:pointer" title="点击复制"></div>
     <div class="waiting">等待朋友加入<span class="dots"></span></div>
     <button class="btn btn-outline" onclick="cancelRoom()">取消</button>
   </div>
@@ -1052,6 +1052,27 @@
     disconnectPeer();
     $('roomInfo').style.display = 'none';
     mode = null;
+  };
+
+  window.copyCode = function() {
+    const code = $('roomCode').textContent;
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => {
+      const el = $('roomCode');
+      const orig = el.style.background;
+      el.style.background = '#e0f0e0';
+      el.textContent = '已复制 ✓';
+      setTimeout(() => {
+        el.style.background = orig;
+        el.textContent = code;
+      }, 1200);
+    }).catch(() => {
+      // Fallback
+      const range = document.createRange();
+      range.selectNode($('roomCode'));
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+    });
   };
 
   // ── Start ──────────────────────────────────────
