@@ -799,25 +799,37 @@
   }
 
   // ── Canvas events ──────────────────────────────
-  canvas.addEventListener('click', e => {
-    if (!myTurn || gameOver || thinking) return;
+  function getCanvasPos(e) {
     const rect = canvas.getBoundingClientRect();
-    const mx = (e.clientX - rect.left) * (SIZE / rect.width);
-    const my = (e.clientY - rect.top) * (SIZE / rect.height);
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      mx: (clientX - rect.left) * (SIZE / rect.width),
+      my: (clientY - rect.top) * (SIZE / rect.height),
+    };
+  }
+
+  function handleTap(e) {
+    if (!myTurn || gameOver || thinking) return;
+    const { mx, my } = getCanvasPos(e);
     const c = idx(mx), r = idx(my);
     if (!inb(r, c)) return;
     if (Math.hypot(mx - px(c), my - px(r)) > R + 3) return;
     handleMyMove(r, c);
-  });
+  }
+
+  canvas.addEventListener('click', handleTap);
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    handleTap(e);
+  }, { passive: false });
 
   canvas.addEventListener('mousemove', e => {
     if (!myTurn || gameOver || thinking) {
       if (hover) { hover = null; draw(); }
       return;
     }
-    const rect = canvas.getBoundingClientRect();
-    const mx = (e.clientX - rect.left) * (SIZE / rect.width);
-    const my = (e.clientY - rect.top) * (SIZE / rect.height);
+    const { mx, my } = getCanvasPos(e);
     const c = idx(mx), r = idx(my);
     if (!inb(r, c) || board[r][c] !== E || Math.hypot(mx - px(c), my - px(r)) > R + 3) {
       if (hover) { hover = null; draw(); }
@@ -937,6 +949,7 @@
 
   let blobId = null;
   let pollDelay = 4000;
+  let myLastSentSeq = 0;
 
   // Maps 6-char room codes to game blob IDs
   const REGISTRY_ID = '019f9fe6-b203-7023-a7f9-2297de9513b8';
@@ -997,21 +1010,27 @@
       pollDelay = 4000;
       const msg = await r.json();
       if (msg && msg.seq > lastSeq) {
-        console.log('Poll got seq:', msg.seq, 'data:', msg.data?.type);
-        lastSeq = msg.seq;
-        if (msg.data) {
-          const d = msg.data;
-          if (d.type === 'move') {
-            onRemoteMove(d.r, d.c);
-          } else if (d.type === 'undo') {
-            if (history.length) { const [r, c] = history.pop(); board[r][c] = E; }
-            lastMove = history.length ? history[history.length - 1].slice(0, 2) : null;
-            myTurn = true; statusText.textContent = '轮到你了～'; btnUndo.disabled = history.length < 2;
-            updateTurnUI(); draw();
-          } else if (d.type === 'reset') {
-            resetGame();
-          } else if (d.type === 'join') {
-            friendName.textContent = '朋友已加入 💕';
+        // Skip if this is our own write (we already applied locally)
+        if (msg.seq === myLastSentSeq) {
+          console.log('Skipping own update seq:', msg.seq);
+          lastSeq = msg.seq;
+        } else {
+          console.log('Remote poll got seq:', msg.seq, 'data:', msg.data?.type);
+          lastSeq = msg.seq;
+          if (msg.data) {
+            const d = msg.data;
+            if (d.type === 'move') {
+              onRemoteMove(d.r, d.c);
+            } else if (d.type === 'undo') {
+              if (history.length) { const [r, c] = history.pop(); board[r][c] = E; }
+              lastMove = history.length ? history[history.length - 1].slice(0, 2) : null;
+              myTurn = true; statusText.textContent = '轮到你了～'; btnUndo.disabled = history.length < 2;
+              updateTurnUI(); draw();
+            } else if (d.type === 'reset') {
+              resetGame();
+            } else if (d.type === 'join') {
+              friendName.textContent = '朋友已加入 💕';
+            }
           }
         }
       }
@@ -1023,6 +1042,7 @@
     if (!blobId) return;
     dbGet().then(msg => {
       const seq = ((msg && msg.seq) || 0) + 1;
+      myLastSentSeq = seq;
       dbPut({ seq, data: obj }).then(() => {
         console.log('Sent:', obj.type, 'seq:', seq);
       }).catch(e => {
@@ -1033,7 +1053,7 @@
 
   function disconnectPeer() {
     if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
-    blobId = null; roomCode = ''; lastSeq = 0;
+    blobId = null; roomCode = ''; lastSeq = 0; myLastSentSeq = 0;
   }
 
   // ── UI ──
