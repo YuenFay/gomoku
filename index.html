@@ -958,8 +958,10 @@
 
   function regGet() {
     return fetch('https://jsonblob.com/api/jsonBlob/' + REGISTRY_ID)
-      .then(r => r.ok ? r.json() : null)
-      .catch(() => null);
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
   }
 
   function regPut(data) {
@@ -1077,11 +1079,21 @@
     try {
       // Look up blob ID from registry
       const reg = await regGet();
+      console.log('Registry:', reg, 'looking for:', code);
       if (!reg || !reg[code]) {
-        $('onlineErr').textContent = '找不到该房间，请检查房间码';
-        return;
+        // Try again after a short delay (maybe createRoom hasn't finished)
+        await new Promise(r => setTimeout(r, 2000));
+        const reg2 = await regGet();
+        console.log('Retry registry:', reg2);
+        if (!reg2 || !reg2[code]) {
+          $('onlineErr').textContent = '找不到该房间，请检查房间码。当前可用房间：' + (reg2 ? Object.keys(reg2).join(',') : '无');
+          return;
+        }
+        blobId = reg2[code];
+      } else {
+        blobId = reg[code];
       }
-      blobId = reg[code];
+      console.log('Joining room:', code, 'blob:', blobId);
       roomCode = code; hostInvite = code;
       amHost = false; myPiece = WHITE; mode = 'online';
       onlinePanel.style.display = 'none'; gameArea.style.display = 'flex';
