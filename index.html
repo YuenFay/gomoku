@@ -923,7 +923,7 @@
     mode = null;
   };
 
-  // ── HTTPS polling relay (fetch, always works on :443) ──
+  // ── GUN.js relay (no rate limit, free, decentralized) ──
   let roomCode = '';
   let pollTimer = null;
   let lastSeq = 0;
@@ -1112,7 +1112,8 @@
       tagBlack.textContent = '⚫ 朋友'; tagWhite.textContent = '⚪ 你';
       // Signal join
       const msg = await dbGet();
-      lastSeq = ((msg && msg.seq) || 0) + 1;
+      lastSeq = (msg && msg.seq) ? msg.seq + 1 : 1;
+      console.log('Join — current seq:', msg?.seq, 'setting lastSeq to:', lastSeq);
       dbPut({ seq: lastSeq, data: { type: 'join' } });
       pollLoop(); resetGame();
     } catch(e) {
