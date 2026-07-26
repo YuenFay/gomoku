@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>五子棋 · Sanrio</title>
+<style>
+  :root {
+    --pink:      #f9cfd4;
+    --pink2:     #f4a3b3;
+    --rose:      #e8879b;
+    --lavender:  #ddd8f0;
+    --sky:       #c5ddf0;
+    --cream:     #fff8f2;
+    --white:     #fff;
+    --text:      #7a5c6b;
+    --text2:     #b0909c;
+    --shadow:    0 2px 12px rgba(180,140,160,0.18);
+    --radius:    16px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #fff5f7;
+    background-image:
+      radial-gradient(ellipse at 20% 20%, #ffe0e8 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 80%, #e0e8ff 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, #fff0f5 0%, transparent 60%);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow-x: hidden;
+  }
+
+  /* Floating decorations */
+  .float {
+    position: fixed;
+    pointer-events: none;
+    font-size: 28px;
+    opacity: 0.5;
+    animation: float 8s ease-in-out infinite;
+    z-index: 0;
+  }
+  .float:nth-child(1) { top: 8%;  left: 6%;  animation-delay: 0s;    font-size: 32px; }
+  .float:nth-child(2) { top: 12%; right: 8%;  animation-delay: 2s;    font-size: 24px; }
+  .float:nth-child(3) { top: 75%; left: 10%; animation-delay: 4s;    font-size: 26px; }
+  .float:nth-child(4) { top: 80%; right: 6%; animation-delay: 1.5s;  font-size: 30px; }
+  .float:nth-child(5) { top: 45%; left: 3%;  animation-delay: 5s;    font-size: 22px; }
+  .float:nth-child(6) { top: 50%; right: 4%; animation-delay: 3.5s;  font-size: 28px; }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    25%      { transform: translateY(-14px) rotate(3deg); }
+    75%      { transform: translateY(6px) rotate(-3deg); }
+  }
+
+  /* ── Lobby / Mode Select ────────────────────── */
+  .lobby {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+  }
+
+  .logo {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--rose);
+    letter-spacing: 0.06em;
+    text-align: center;
+    text-shadow: 0 2px 8px rgba(232,135,155,0.2);
+  }
+  .logo span { font-size: 38px; display: block; margin-bottom: 4px; }
+
+  .mode-cards {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .card {
+    background: var(--white);
+    border-radius: var(--radius);
+    padding: 24px 28px;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+    transition: all 0.25s;
+    text-align: center;
+    min-width: 150px;
+    border: 2px solid transparent;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 24px rgba(180,140,160,0.28);
+    border-color: var(--pink);
+  }
+  .card .icon { font-size: 40px; }
+  .card .label {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .card .sub {
+    font-size: 11px;
+    color: var(--text2);
+  }
+
+  /* ── Online panel ────────────────────────────── */
+  .online-panel {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    background: var(--white);
+    padding: 24px 30px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    max-width: 360px;
+  }
+  .online-panel h3 {
+    color: var(--rose);
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .input-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+  input {
+    flex: 1;
+    padding: 8px 14px;
+    border: 2px solid #f0e0e8;
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    font-family: inherit;
+    transition: border-color 0.2s;
+  }
+  input:focus { border-color: var(--pink2); }
+  input::placeholder { color: #d0c0c8; }
+  .btn {
+    padding: 8px 18px;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s;
+    letter-spacing: 0.02em;
+  }
+  .btn-pink {
+    background: var(--pink);
+    color: var(--rose);
+  }
+  .btn-pink:hover { background: var(--pink2); color: #fff; }
+  .btn-lavender {
+    background: var(--lavender);
+    color: #8878a8;
+  }
+  .btn-lavender:hover { background: #ccc0e8; }
+  .btn-outline {
+    background: transparent;
+    border: 2px solid #f0e0e8;
+    color: var(--text2);
+  }
+  .btn-outline:hover { border-color: var(--pink2); color: var(--text); }
+  .code-display {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--rose);
+    letter-spacing: 0.1em;
+    background: #fff5f7;
+    padding: 8px 20px;
+    border-radius: 10px;
+    border: 2px dashed var(--pink);
+  }
+  .waiting {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text2);
+  }
+  .dots::after {
+    content: '';
+    animation: dots 1.5s steps(4) infinite;
+  }
+  @keyframes dots {
+    0%   { content: ''; }
+    25%  { content: '.'; }
+    50%  { content: '..'; }
+    75%  { content: '...'; }
+  }
+
+  /* ── Game area ───────────────────────────────── */
+  .game-area {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .player-tag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .tag-black { background: #3a3a3a; color: #fff; }
+  .tag-white { background: #f0ede8; color: #6b5c6b; border: 1px solid #e0d8d0; }
+  .tag-active { box-shadow: 0 0 0 3px var(--pink2); }
+
+  .status-text {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text);
+    min-height: 20px;
+    text-align: center;
+  }
+  .status-text.win  { color: #8bb88b; font-weight: 700; }
+  .status-text.lose { color: #d49090; font-weight: 700; }
+  .status-text.draw { color: var(--text2); }
+
+  .board-frame {
+    background: #fff;
+    padding: 20px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  canvas { display: block; cursor: pointer; border-radius: 8px; }
+
+  .btns-row {
+    display: flex;
+    gap: 10px;
+  }
+
+  .friend-badge {
+    font-size: 11px;
+    color: var(--text2);
+  }
+  .friend-badge span { color: #8bb88b; font-weight: 600; }
+
+  /* ── Responsive ──────────────────────────────── */
+  @media (max-width: 520px) {
+    .mode-cards { flex-direction: column; }
+    .card { min-width: auto; padding: 18px 24px; }
+    .board-frame { padding: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Floating decorations -->
+<div class="float">🎀</div>
+<div class="float">🌸</div>
+<div class="float">💖</div>
+<div class="float">✨</div>
+<div class="float">🐱</div>
+<div class="float">🎪</div>
+
+<!-- ── LOBBY ──────────────────────────────────── -->
+<div class="lobby" id="lobby">
+  <div class="logo">
+    <span>🎀</span>
+    五子棋
+  </div>
+  <div class="mode-cards">
+    <div class="card" onclick="startAI()">
+      <div class="icon">🤖</div>
+      <div class="label">人机对战</div>
+      <div class="sub">和 AI 切磋</div>
+    </div>
+    <div class="card" onclick="showOnline()">
+      <div class="icon">💕</div>
+      <div class="label">联机对战</div>
+      <div class="sub">和朋友一起玩</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── ONLINE SETUP ───────────────────────────── -->
+<div class="online-panel" id="onlinePanel">
+  <h3>💕 和朋友一起玩</h3>
+  <button class="btn btn-pink" style="width:100%" onclick="createRoom()">🏠 创建房间</button>
+  <div style="color:var(--text2);font-size:12px">— 或 —</div>
+  <div class="input-row">
+    <input type="text" id="roomInput" placeholder="输入房间码" maxlength="10" autocomplete="off">
+    <button class="btn btn-lavender" onclick="joinRoom()">加入</button>
+  </div>
+  <div id="roomInfo" style="display:none;flex-direction:column;align-items:center;gap:8px">
+    <div style="font-size:12px;color:var(--text2)">分享这个房间码给朋友：</div>
+    <div class="code-display" id="roomCode"></div>
+    <div class="waiting">等待朋友加入<span class="dots"></span></div>
+    <button class="btn btn-outline" onclick="cancelRoom()">取消</button>
+  </div>
+  <button class="btn btn-outline" style="margin-top:4px" onclick="backToLobby()">← 返回</button>
+  <div id="onlineErr" style="color:#d49090;font-size:12px"></div>
+</div>
+
+<!-- ── GAME AREA ──────────────────────────────── -->
+<div class="game-area" id="gameArea">
+  <div class="top-bar" id="topBar">
+    <div class="player-tag tag-black" id="tagBlack">⚫ 你</div>
+    <div class="status-text" id="statusText">你先手</div>
+    <div class="player-tag tag-white" id="tagWhite">⚪ AI</div>
+  </div>
+  <div class="board-frame">
+    <canvas id="board"></canvas>
+  </div>
+  <div class="btns-row">
+    <button class="btn btn-outline" id="btnUndo" disabled>↩ 悔棋</button>
+    <button class="btn btn-pink" id="btnNew">🔄 新局</button>
+  </div>
+  <div class="friend-badge" id="friendBadge" style="display:none">🔗 已连接：<span id="friendName"></span></div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script>
+(function() {
+  // ── Constants ──────────────────────────────────
+  const N = 15, CELL = 34, PAD = 24;
+  const SIZE = CELL * (N - 1) + PAD * 2;
+  const R = CELL * 0.43;
+  const E = 0, BLACK = 1, WHITE = 2;
+  const MAX_DEPTH = 6;
+  const WIN = 100000000;
+
+  // ── DOM refs ───────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const lobby = $('lobby');
+  const onlinePanel = $('onlinePanel');
+  const gameArea = $('gameArea');
+  const statusText = $('statusText');
+  const tagBlack = $('tagBlack');
+  const tagWhite = $('tagWhite');
+  const btnUndo = $('btnUndo');
+  const btnNew = $('btnNew');
+  const friendBadge = $('friendBadge');
+  const friendName = $('friendName');
+
+  const canvas = $('board');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width  = SIZE * dpr;
+  canvas.height = SIZE * dpr;
+  canvas.style.width  = SIZE + 'px';
+  canvas.style.height = SIZE + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // ── State ──────────────────────────────────────
+  let board, gameOver, myTurn, hover, lastMove, winLine;
+  let history = [];
+  let thinking = false;
+  let mode = null;        // 'ai' | 'online'
+  let myPiece = BLACK;    // local player's piece
+  let amHost = false;
+
+  // ── PeerJS ─────────────────────────────────────
+  let peer = null;
+  let conn = null;
+
+  // ── Init board ─────────────────────────────────
+  function freshBoard() {
+    return Array.from({ length: N }, () => Array(N).fill(E));
+  }
+
+  function px(i) { return PAD + i * CELL; }
+  function idx(v) { return Math.round((v - PAD) / CELL); }
+  function inb(r, c) { return r >= 0 && r < N && c >= 0 && c < N; }
+
+  // ── Win check ──────────────────────────────────
+  function hasFive(b, r, c, p) {
+    const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+    for (const [dr, dc] of dirs) {
+      let n = 1;
+      let rr = r + dr, cc = c + dc;
+      while (inb(rr, cc) && b[rr][cc] === p) { n++; rr += dr; cc += dc; }
+      rr = r - dr; cc = c - dc;
+      while (inb(rr, cc) && b[rr][cc] === p) { n++; rr -= dr; cc -= dc; }
+      if (n >= 5) return true;
+    }
+    return false;
+  }
+
+  function getLine(b, r, c, p) {
+    const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+    for (const [dr, dc] of dirs) {
+      const line = [[r, c]];
+      let rr = r + dr, cc = c + dc;
+      while (inb(rr, cc) && b[rr][cc] === p) { line.push([rr, cc]); rr += dr; cc += dc; }
+      rr = r - dr; cc = c - dc;
+      while (inb(rr, cc) && b[rr][cc] === p) { line.unshift([rr, cc]); rr -= dr; cc -= dc; }
+      if (line.length >= 5) return line;
+    }
+    return null;
+  }
+
+  function isFull(b) {
+    for (let r = 0; r < N; r++)
+      for (let c = 0; c < N; c++)
+        if (b[r][c] === E) return false;
+    return true;
+  }
+
+  // ── AI ─────────────────────────────────────────
+  function hasNear(b, r, c, d) {
+    for (let dr = -d; dr <= d; dr++)
+      for (let dc = -d; dc <= d; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const rr = r + dr, cc = c + dc;
+        if (inb(rr, cc) && b[rr][cc] !== E) return true;
+      }
+    return false;
+  }
+
+  function countDir(b, r, c, dr, dc, p) {
+    let n = 0, rr = r + dr, cc = c + dc;
+    while (inb(rr, cc) && b[rr][cc] === p) { n++; rr += dr; cc += dc; }
+    return n;
+  }
+
+  function openEnd(b, r, c, dr, dc, p) {
+    let rr = r, cc = c;
+    while (inb(rr, cc) && b[rr][cc] === p) { rr += dr; cc += dc; }
+    return inb(rr, cc) && b[rr][cc] === E ? 1 : 0;
+  }
+
+  function patScore(n, ends) {
+    if (n >= 5) return WIN;
+    if (ends === 0) return 0;
+    const T = { 4: [50000, 500000], 3: [500, 6000], 2: [25, 300], 1: [1, 12] };
+    const t = T[n];
+    return t ? (ends === 2 ? t[1] : t[0]) : 0;
+  }
+
+  function cellHeur(b, r, c, p) {
+    const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+    let s = 0;
+    const prev = b[r][c];
+    b[r][c] = p;
+    for (const [dr, dc] of dirs) {
+      const c1 = countDir(b, r, c, dr, dc, p);
+      const c2 = countDir(b, r, c, -dr, -dc, p);
+      const total = 1 + c1 + c2;
+      const o1 = openEnd(b, r, c, dr, dc, p);
+      const o2 = openEnd(b, r, c, -dr, -dc, p);
+      s += patScore(total, o1 + o2);
+    }
+    b[r][c] = prev;
+    return s;
+  }
+
+  function candidates(b, limit) {
+    const list = [];
+    const any = history.length > 0;
+    for (let r = 0; r < N; r++)
+      for (let c = 0; c < N; c++) {
+        if (b[r][c] !== E) continue;
+        if (any && !hasNear(b, r, c, 2)) continue;
+        list.push({ r, c, s: cellHeur(b, r, c, WHITE) + cellHeur(b, r, c, BLACK) * 0.95 });
+      }
+    list.sort((a, b) => b.s - a.s);
+    return list.slice(0, limit || 15).map(x => [x.r, x.c]);
+  }
+
+  function scoreWindow(b, r, c, dr, dc) {
+    let ai = 0, pl = 0;
+    for (let i = 0; i < 5; i++) {
+      const v = b[r + i*dr][c + i*dc];
+      if (v === WHITE) ai++;
+      else if (v === BLACK) pl++;
+    }
+    if (ai > 0 && pl > 0) return 0;
+    if (ai === 0 && pl === 0) return 0;
+    const T = [0, 1, 12, 150, 8000, WIN];
+    return ai ? T[ai] : -T[pl];
+  }
+
+  function evaluate(b) {
+    let s = 0;
+    for (let r = 0; r < N; r++)
+      for (let c = 0; c <= N - 5; c++) s += scoreWindow(b, r, c, 0, 1);
+    for (let r = 0; r <= N - 5; r++)
+      for (let c = 0; c < N; c++) s += scoreWindow(b, r, c, 1, 0);
+    for (let r = 0; r <= N - 5; r++)
+      for (let c = 0; c <= N - 5; c++) s += scoreWindow(b, r, c, 1, 1);
+    for (let r = 0; r <= N - 5; r++)
+      for (let c = 4; c < N; c++) s += scoreWindow(b, r, c, 1, -1);
+    return s;
+  }
+
+  function minimax(b, depth, alpha, beta, maxi) {
+    if (depth === 0) return evaluate(b);
+    const cand = candidates(b, depth === MAX_DEPTH ? 18 : (depth <= 2 ? 14 : 10));
+    if (cand.length === 0) return 0;
+
+    if (maxi) {
+      let best = -Infinity;
+      for (const [r, c] of cand) {
+        b[r][c] = WHITE;
+        if (hasFive(b, r, c, WHITE)) { b[r][c] = E; return WIN + depth; }
+        const v = minimax(b, depth - 1, alpha, beta, false);
+        b[r][c] = E;
+        if (v > best) best = v;
+        if (v > alpha) alpha = v;
+        if (alpha >= beta) break;
+      }
+      return best;
+    } else {
+      let best = Infinity;
+      for (const [r, c] of cand) {
+        b[r][c] = BLACK;
+        if (hasFive(b, r, c, BLACK)) { b[r][c] = E; return -(WIN + depth); }
+        const v = minimax(b, depth - 1, alpha, beta, true);
+        b[r][c] = E;
+        if (v < best) best = v;
+        if (v < beta) beta = v;
+        if (alpha >= beta) break;
+      }
+      return best;
+    }
+  }
+
+  function aiMove() {
+    const cand = candidates(board, 22);
+    if (cand.length === 0) return null;
+    let best = -Infinity, bestMoves = [];
+    for (const [r, c] of cand) {
+      board[r][c] = WHITE;
+      if (hasFive(board, r, c, WHITE)) { board[r][c] = E; return [r, c]; }
+      const v = minimax(board, MAX_DEPTH - 1, -Infinity, Infinity, false);
+      board[r][c] = E;
+      if (v > best) { best = v; bestMoves = [[r, c]]; }
+      else if (v === best) bestMoves.push([r, c]);
+    }
+    return (bestMoves.length ? bestMoves : cand)[Math.floor(Math.random() * Math.max(bestMoves.length, 1))];
+  }
+
+  // ── Drawing ────────────────────────────────────
+  function draw() {
+    ctx.clearRect(0, 0, SIZE, SIZE);
+
+    // Board bg - light pink tint
+    const bg = ctx.createLinearGradient(0, 0, SIZE, SIZE);
+    bg.addColorStop(0, '#fffafb');
+    bg.addColorStop(1, '#fff5f8');
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, SIZE, SIZE, 12);
+    ctx.fill();
+
+    // Grid
+    ctx.strokeStyle = '#ebd5dd';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < N; i++) {
+      const pos = px(i);
+      ctx.beginPath();
+      ctx.moveTo(px(0), pos); ctx.lineTo(px(N-1), pos); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(pos, px(0)); ctx.lineTo(pos, px(N-1)); ctx.stroke();
+    }
+
+    // Tiny dots at intersections
+    ctx.fillStyle = '#dcc8d2';
+    for (let r = 0; r < N; r++)
+      for (let c = 0; c < N; c++) {
+        ctx.beginPath();
+        ctx.arc(px(c), px(r), 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+    // Star points with hearts
+    const stars = [[3,3],[3,7],[3,11],[7,3],[7,7],[7,11],[11,3],[11,7],[11,11]];
+    for (const [r, c] of stars) {
+      drawTinyHeart(px(c), px(r), 3.5, '#e8bcc8');
+    }
+
+    // Stones
+    for (let r = 0; r < N; r++)
+      for (let c = 0; c < N; c++)
+        if (board[r][c] !== E) drawStone(r, c, board[r][c]);
+
+    // Last move dot
+    if (lastMove && !winLine) {
+      const [lr, lc] = lastMove;
+      ctx.fillStyle = '#f2a0b3';
+      ctx.beginPath();
+      ctx.arc(px(lc), px(lr), 3.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Win highlight
+    if (winLine) {
+      for (const [wr, wc] of winLine) {
+        ctx.strokeStyle = '#f7b8c8';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(px(wc), px(wr), R + 3.5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    // Hover ghost
+    if (hover && myTurn && !gameOver && !thinking && !winLine &&
+        board[hover[0]][hover[1]] === E) {
+      const col = myPiece === BLACK ? 'rgba(60,60,60,0.18)' : 'rgba(180,150,150,0.22)';
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(px(hover[1]), px(hover[0]), R, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawTinyHeart(x, y, s, color) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    const d = s * 0.4;
+    ctx.moveTo(0, s * 0.3);
+    ctx.bezierCurveTo(-d, -s*0.2, -s*0.5, -s*0.35, -s*0.5, -s*0.8);
+    ctx.bezierCurveTo(-s*0.5, -s*1.1, 0, -s*1.3, 0, -s*1.3);
+    ctx.bezierCurveTo(0, -s*1.3, s*0.5, -s*1.1, s*0.5, -s*0.8);
+    ctx.bezierCurveTo(s*0.5, -s*0.35, d, -s*0.2, 0, s*0.3);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawStone(r, c, color) {
+    const cx = px(c), cy = px(r);
+
+    // Soft shadow
+    ctx.fillStyle = 'rgba(180,160,180,0.13)';
+    ctx.beginPath();
+    ctx.arc(cx + 1, cy + 1.5, R, 0, Math.PI * 2);
+    ctx.fill();
+
+    const g = ctx.createRadialGradient(cx - R*0.3, cy - R*0.3, R*0.04, cx, cy, R);
+    if (color === BLACK) {
+      g.addColorStop(0, '#6b6b6b');
+      g.addColorStop(0.5, '#3a3a3a');
+      g.addColorStop(1, '#1a1a1a');
+    } else {
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.5, '#f5f0ec');
+      g.addColorStop(1, '#ded6ce');
+    }
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ── Game actions ───────────────────────────────
+  function place(r, c, p) {
+    board[r][c] = p;
+    lastMove = [r, c];
+    history.push([r, c, p]);
+  }
+
+  function endGame(winner, line) {
+    gameOver = true;
+    winLine = line;
+    statusText.classList.remove('win', 'lose', 'draw');
+
+    if (mode === 'ai') {
+      if (winner === BLACK) {
+        statusText.textContent = '🎀 你赢了！好厉害！';
+        statusText.classList.add('win');
+      } else if (winner === WHITE) {
+        statusText.textContent = '💧 AI 赢了，再来一局吧';
+        statusText.classList.add('lose');
+      } else {
+        statusText.textContent = '🌸 平局～';
+        statusText.classList.add('draw');
+      }
+    } else {
+      const iWon = winner === myPiece;
+      if (winner === null) {
+        statusText.textContent = '🌸 平局～';
+        statusText.classList.add('draw');
+      } else if (iWon) {
+        statusText.textContent = '🎀 你赢了！';
+        statusText.classList.add('win');
+      } else {
+        statusText.textContent = '💧 你输了';
+        statusText.classList.add('lose');
+      }
+    }
+
+    btnUndo.disabled = true;
+    draw();
+  }
+
+  function updateTurnUI() {
+    tagBlack.classList.toggle('tag-active', myTurn && myPiece === BLACK);
+    tagWhite.classList.toggle('tag-active', myTurn && myPiece === WHITE);
+  }
+
+  function doAIMove() {
+    if (gameOver) return;
+    thinking = true;
+    btnUndo.disabled = true;
+    statusText.textContent = '🤔 AI 思考中…';
+    draw();
+
+    setTimeout(() => {
+      const m = aiMove();
+      if (!m) { thinking = false; return; }
+      const [r, c] = m;
+      place(r, c, WHITE);
+      thinking = false;
+
+      if (hasFive(board, r, c, WHITE)) { endGame(WHITE, getLine(board, r, c, WHITE)); return; }
+      if (isFull(board)) { endGame(null, null); return; }
+
+      myTurn = true;
+      statusText.textContent = '轮到你了～';
+      btnUndo.disabled = history.length < 2;
+      updateTurnUI();
+      draw();
+    }, 120);
+  }
+
+  function handleMyMove(r, c) {
+    if (gameOver || !myTurn || thinking) return;
+    if (!inb(r, c)) return;
+    if (board[r][c] !== E) return;
+
+    place(r, c, myPiece);
+    myTurn = false;
+    btnUndo.disabled = true;
+    updateTurnUI();
+    draw();
+
+    // Check my win
+    if (hasFive(board, r, c, myPiece)) {
+      endGame(myPiece, getLine(board, r, c, myPiece));
+      return;
+    }
+    if (isFull(board)) { endGame(null, null); return; }
+
+    if (mode === 'ai') {
+      doAIMove();
+    } else if (mode === 'online') {
+      // Send move to peer
+      if (conn) conn.send({ type: 'move', r, c });
+      statusText.textContent = '等待对方落子…';
+    }
+  }
+
+  function onRemoteMove(r, c) {
+    const other = myPiece === BLACK ? WHITE : BLACK;
+    place(r, c, other);
+
+    if (hasFive(board, r, c, other)) {
+      endGame(other, getLine(board, r, c, other));
+      return;
+    }
+    if (isFull(board)) { endGame(null, null); return; }
+
+    myTurn = true;
+    statusText.textContent = '轮到你了～';
+    btnUndo.disabled = history.length < 2;
+    updateTurnUI();
+    draw();
+  }
+
+  // ── Canvas events ──────────────────────────────
+  canvas.addEventListener('click', e => {
+    if (!myTurn || gameOver || thinking) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (SIZE / rect.width);
+    const my = (e.clientY - rect.top) * (SIZE / rect.height);
+    const c = idx(mx), r = idx(my);
+    if (!inb(r, c)) return;
+    if (Math.hypot(mx - px(c), my - px(r)) > R + 3) return;
+    handleMyMove(r, c);
+  });
+
+  canvas.addEventListener('mousemove', e => {
+    if (!myTurn || gameOver || thinking) {
+      if (hover) { hover = null; draw(); }
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (SIZE / rect.width);
+    const my = (e.clientY - rect.top) * (SIZE / rect.height);
+    const c = idx(mx), r = idx(my);
+    if (!inb(r, c) || board[r][c] !== E || Math.hypot(mx - px(c), my - px(r)) > R + 3) {
+      if (hover) { hover = null; draw(); }
+      return;
+    }
+    if (!hover || hover[0] !== r || hover[1] !== c) { hover = [r, c]; draw(); }
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    if (hover) { hover = null; draw(); }
+  });
+
+  // ── Buttons ────────────────────────────────────
+  btnNew.addEventListener('click', resetGame);
+  btnUndo.addEventListener('click', () => {
+    if (gameOver || thinking) return;
+    if (mode === 'ai' && history.length >= 2) {
+      for (let i = 0; i < 2; i++) { const [r, c] = history.pop(); board[r][c] = E; }
+      lastMove = history.length ? history[history.length - 1].slice(0, 2) : null;
+      myTurn = true;
+      statusText.textContent = '轮到你了～';
+      btnUndo.disabled = history.length < 2;
+      updateTurnUI();
+      draw();
+    } else if (mode === 'online' && conn && history.length >= 1) {
+      // Only undo own last move in online mode
+      const last = history[history.length - 1];
+      if (last[2] === myPiece) {
+        conn.send({ type: 'undo' });
+        const [r, c] = history.pop(); board[r][c] = E;
+        lastMove = history.length ? history[history.length - 1].slice(0, 2) : null;
+        btnUndo.disabled = true;
+        draw();
+      }
+    }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'n' || e.key === 'N') resetGame();
+    if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      btnUndo.click();
+    }
+  });
+
+  // ── Mode switching ─────────────────────────────
+  function resetGame() {
+    board = freshBoard();
+    gameOver = false;
+    myTurn = (mode === 'online' && !amHost) ? false : true;
+    hover = null;
+    lastMove = null;
+    winLine = null;
+    history = [];
+    thinking = false;
+
+    if (mode === 'ai') {
+      myPiece = BLACK;
+      myTurn = true;
+      statusText.textContent = '你先手';
+      tagBlack.textContent = '⚫ 你';
+      tagWhite.textContent = '⚪ AI';
+    } else if (mode === 'online') {
+      tagBlack.textContent = myPiece === BLACK ? '⚫ 你' : '⚫ 朋友';
+      tagWhite.textContent = myPiece === WHITE ? '⚪ 你' : '⚪ 朋友';
+      statusText.textContent = myTurn ? '你先手' : '对方先手';
+    }
+
+    statusText.className = 'status-text';
+    btnUndo.disabled = true;
+    updateTurnUI();
+    draw();
+  }
+
+  window.startAI = function() {
+    mode = 'ai';
+    myPiece = BLACK;
+    lobby.style.display = 'none';
+    onlinePanel.style.display = 'none';
+    gameArea.style.display = 'flex';
+    friendBadge.style.display = 'none';
+    tagBlack.textContent = '⚫ 你';
+    tagWhite.textContent = '⚪ AI';
+    disconnectPeer();
+    resetGame();
+  };
+
+  window.showOnline = function() {
+    lobby.style.display = 'none';
+    onlinePanel.style.display = 'flex';
+    gameArea.style.display = 'none';
+    $('roomInfo').style.display = 'none';
+    $('onlineErr').textContent = '';
+    $('roomInput').value = '';
+  };
+
+  window.backToLobby = function() {
+    disconnectPeer();
+    lobby.style.display = 'flex';
+    onlinePanel.style.display = 'none';
+    gameArea.style.display = 'none';
+    friendBadge.style.display = 'none';
+    mode = null;
+  };
+
+  // ── PeerJS ─────────────────────────────────────
+  // Multiple signaling relays for reliability (no VPN needed)
+  const SIGNAL_HOSTS = [
+    { host: '0.peerjs.com', port: 443, secure: true },
+    { host: 'peerjs.rickyweipan.com', port: 443, secure: true },
+  ];
+  let sigIdx = 0;
+
+  function initPeer() {
+    if (peer && !peer.destroyed) return;
+    const sig = SIGNAL_HOSTS[sigIdx % SIGNAL_HOSTS.length];
+    peer = new Peer(undefined, {
+      debug: 0,
+      host: sig.host,
+      port: sig.port,
+      secure: sig.secure,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ],
+      },
+    });
+    peer.on('error', err => {
+      console.error('Peer error:', err);
+      // Try next fallback server
+      if (sigIdx < SIGNAL_HOSTS.length - 1) {
+        sigIdx++;
+        if (peer && !peer.destroyed) peer.destroy();
+        peer = null;
+        $('onlineErr').textContent = '切换节点中…';
+        initPeer();
+      } else {
+        $('onlineErr').textContent = '网络不通，请检查是否开了代理，或关闭代理试试';
+      }
+    });
+  }
+
+  function disconnectPeer() {
+    if (conn) { conn.close(); conn = null; }
+    if (peer && !peer.destroyed) { peer.destroy(); peer = null; }
+  }
+
+  window.createRoom = function() {
+    initPeer();
+    $('onlineErr').textContent = '';
+    peer.on('open', id => {
+      $('roomCode').textContent = id;
+      $('roomInfo').style.display = 'flex';
+      amHost = true;
+      myPiece = BLACK;
+      mode = 'online';
+
+      // Wait for someone to connect
+      peer.on('connection', c => {
+        if (conn) { c.close(); return; }
+        conn = c;
+        setupConnection();
+      });
+    });
+  };
+
+  window.joinRoom = function() {
+    const code = $('roomInput').value.trim();
+    if (!code) { $('onlineErr').textContent = '请输入房间码'; return; }
+    initPeer();
+    $('onlineErr').textContent = '';
+    peer.on('open', () => {
+      amHost = false;
+      myPiece = WHITE;
+      mode = 'online';
+      const c = peer.connect(code, { reliable: true });
+      conn = c;
+      c.on('open', () => { setupConnection(); });
+      c.on('error', err => {
+        $('onlineErr').textContent = '无法加入房间，请检查房间码';
+        console.error(err);
+      });
+    });
+  };
+
+  function setupConnection() {
+    conn.on('data', data => {
+      if (data.type === 'move') {
+        onRemoteMove(data.r, data.c);
+      } else if (data.type === 'undo') {
+        // Remote player undid their move
+        const [r, c] = history.pop();
+        board[r][c] = E;
+        lastMove = history.length ? history[history.length - 1].slice(0, 2) : null;
+        myTurn = true;
+        statusText.textContent = '轮到你了～';
+        btnUndo.disabled = history.length < 2;
+        updateTurnUI();
+        draw();
+      } else if (data.type === 'reset') {
+        resetGame();
+      }
+    });
+
+    conn.on('close', () => {
+      conn = null;
+      if (mode === 'online' && gameArea.style.display === 'flex') {
+        statusText.textContent = '💔 连接已断开';
+        statusText.classList.add('lose');
+        gameOver = true;
+        draw();
+      }
+    });
+
+    // Enter game area
+    onlinePanel.style.display = 'none';
+    gameArea.style.display = 'flex';
+    friendBadge.style.display = 'flex';
+    friendName.textContent = amHost ? '朋友已加入 💕' : '已连接到房间 💕';
+    tagBlack.textContent = myPiece === BLACK ? '⚫ 你' : '⚫ 朋友';
+    tagWhite.textContent = myPiece === WHITE ? '⚪ 你' : '⚪ 朋友';
+    $('onlineErr').textContent = '';
+    resetGame();
+  }
+
+  window.cancelRoom = function() {
+    disconnectPeer();
+    $('roomInfo').style.display = 'none';
+    mode = null;
+  };
+
+  // ── Start ──────────────────────────────────────
+  // Show lobby by default
+  lobby.style.display = 'flex';
+  onlinePanel.style.display = 'none';
+  gameArea.style.display = 'none';
+})();
+</script>
+</body>
+</html>
