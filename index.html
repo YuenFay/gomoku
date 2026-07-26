@@ -935,24 +935,54 @@
     return s;
   }
 
-  // Write to shared bucket via HTTPS PUT (port 443, always unblocked)
-  function dbPut(key, val) {
-    return fetch('https://kvdb.io/gomoku-' + roomCode + '/' + key, {
+  let blobId = null;
+
+  // Fixed registry blob ID — maps 6-char room codes to game blob IDs
+  const REGISTRY_ID = '019f9fe6-b203-7023-a7f9-2297de9513b8';
+
+  async function dbPut(data) {
+    if (!blobId) return;
+    return fetch('https://jsonblob.com/api/jsonBlob/' + blobId, {
       method: 'PUT',
-      body: JSON.stringify(val),
+      body: JSON.stringify(data),
       headers: { 'Content-Type': 'application/json' },
     }).catch(() => {});
   }
 
-  function dbGet(key) {
-    return fetch('https://kvdb.io/gomoku-' + roomCode + '/' + key)
+  function dbGet() {
+    if (!blobId) return Promise.resolve(null);
+    return fetch('https://jsonblob.com/api/jsonBlob/' + blobId)
       .then(r => r.ok ? r.json() : null)
       .catch(() => null);
   }
 
+  function regGet() {
+    return fetch('https://jsonblob.com/api/jsonBlob/' + REGISTRY_ID)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+  }
+
+  function regPut(data) {
+    return fetch('https://jsonblob.com/api/jsonBlob/' + REGISTRY_ID, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+      headers: { 'Content-Type': 'application/json' },
+    }).catch(() => {});
+  }
+
+  async function createGameBlob() {
+    const r = await fetch('https://jsonblob.com/api/jsonBlob', {
+      method: 'POST',
+      body: JSON.stringify({ seq: 0, data: { type: 'init' } }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const loc = r.headers.get('Location') || '';
+    return loc.split('/').pop();
+  }
+
   async function pollLoop() {
-    if (!roomCode) return;
-    const msg = await dbGet('msgs');
+    if (!blobId) return;
+    const msg = await dbGet();
     if (msg && msg.seq > lastSeq) {
       lastSeq = msg.seq;
       if (msg.data) {
@@ -975,30 +1005,40 @@
   }
 
   function sendToPeer(obj) {
-    if (!roomCode) return;
-    dbGet('seq').then(s => {
-      const seq = (s || 0) + 1;
-      dbPut('seq', seq);
-      dbPut('msgs', { seq, data: obj });
+    if (!blobId) return;
+    dbGet().then(msg => {
+      const seq = ((msg && msg.seq) || 0) + 1;
+      dbPut({ seq, data: obj });
     });
   }
 
   function disconnectPeer() {
     if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
-    roomCode = ''; lastSeq = 0;
+    blobId = null; roomCode = ''; lastSeq = 0;
   }
 
   // ── UI ──
-  window.createRoom = function() {
-    roomCode = genCode(); hostInvite = roomCode;
-    amHost = true; myPiece = BLACK; mode = 'online';
-    onlinePanel.style.display = 'none'; gameArea.style.display = 'flex';
-    friendBadge.style.display = 'flex';
-    friendName.textContent = '房间码：' + roomCode + ' | 等待朋友…';
-    $('btnCopyRoom').style.display = 'inline-block';
-    tagBlack.textContent = '⚫ 你'; tagWhite.textContent = '⚪ 朋友';
-    lastSeq = 0; dbPut('seq', 0); dbPut('msgs', { seq: 0, data: { type: 'init' } });
-    pollLoop(); resetGame();
+  window.createRoom = async function() {
+    $('onlineErr').textContent = '创建中…';
+    try {
+      blobId = await createGameBlob();
+      roomCode = genCode(); hostInvite = roomCode;
+      // Register room code → blob ID mapping
+      regGet().then(reg => {
+        const data = reg || {};
+        data[roomCode] = blobId;
+        regPut(data);
+      });
+      amHost = true; myPiece = BLACK; mode = 'online';
+      onlinePanel.style.display = 'none'; gameArea.style.display = 'flex';
+      friendBadge.style.display = 'flex';
+      friendName.textContent = '房间码：' + roomCode + ' | 等待朋友…';
+      $('btnCopyRoom').style.display = 'inline-block';
+      tagBlack.textContent = '⚫ 你'; tagWhite.textContent = '⚪ 朋友';
+      lastSeq = 0; pollLoop(); resetGame();
+    } catch(e) {
+      $('onlineErr').textContent = '创建失败，请重试';
+    }
   };
 
   window.showJoin = function() {
@@ -1023,20 +1063,32 @@
   window.finishHost = function() {};
   window.copyAnswer = function() {};
 
-  window.acceptInvite = function() {
+  window.acceptInvite = async function() {
     const code = $('inviteInput').value.trim().toUpperCase();
     if (!code) { $('onlineErr').textContent = '请输入6位房间码'; return; }
-    roomCode = code; hostInvite = code;
-    amHost = false; myPiece = WHITE; mode = 'online';
-    onlinePanel.style.display = 'none'; gameArea.style.display = 'flex';
-    friendBadge.style.display = 'flex';
-    friendName.textContent = '已加入房间 💕';
-    tagBlack.textContent = '⚫ 朋友'; tagWhite.textContent = '⚪ 你';
-    dbGet('msgs').then(m => {
-      lastSeq = (m && m.seq) ? m.seq + 1 : 0;
-      dbPut('msgs', { seq: lastSeq, data: { type: 'join' } });
-    });
-    pollLoop(); resetGame();
+    $('onlineErr').textContent = '加入中…';
+    try {
+      // Look up blob ID from registry
+      const reg = await regGet();
+      if (!reg || !reg[code]) {
+        $('onlineErr').textContent = '找不到该房间，请检查房间码';
+        return;
+      }
+      blobId = reg[code];
+      roomCode = code; hostInvite = code;
+      amHost = false; myPiece = WHITE; mode = 'online';
+      onlinePanel.style.display = 'none'; gameArea.style.display = 'flex';
+      friendBadge.style.display = 'flex';
+      friendName.textContent = '已加入房间 💕';
+      tagBlack.textContent = '⚫ 朋友'; tagWhite.textContent = '⚪ 你';
+      // Signal join
+      const msg = await dbGet();
+      lastSeq = ((msg && msg.seq) || 0) + 1;
+      dbPut({ seq: lastSeq, data: { type: 'join' } });
+      pollLoop(); resetGame();
+    } catch(e) {
+      $('onlineErr').textContent = '加入失败，请检查网络';
+    }
   };
 
   window.cancelRoom = function() {
