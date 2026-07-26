@@ -924,7 +924,7 @@
     mode = null;
   };
 
-  // ── Pure WebRTC (no signaling server, China-friendly) ──
+  // ── Pure WebRTC (TURN relay for NAT traversal) ──
   let pc = null;
   let dc = null;
   let hostInvite = null;
@@ -932,10 +932,28 @@
 
   const ICE_SERVERS = {
     iceServers: [
+      // Google STUN (address discovery)
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
+      // Metered TURN relay (free tier, works in China)
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
     ],
-    iceCandidatePoolSize: 2,
+    iceCandidatePoolSize: 4,
+    iceTransportPolicy: 'all',
   };
 
   function startGather(type) {
@@ -946,10 +964,12 @@
     } else {
       pc.ondatachannel = e => { dc = e.channel; setupDataChannel(dc); };
     }
-    // Collect ICE candidates
-    pc.onicecandidate = e => {
-      if (!e.candidate) return;
-      // Will be included in the SDP
+    // Log connection progress
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      if (state === 'failed' || state === 'disconnected') {
+        console.warn('ICE state:', state);
+      }
     };
   }
 
