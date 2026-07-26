@@ -937,16 +937,16 @@
 
   let blobId = null;
 
-  // Fixed registry blob ID — maps 6-char room codes to game blob IDs
+  // Maps 6-char room codes to game blob IDs
   const REGISTRY_ID = '019f9fe6-b203-7023-a7f9-2297de9513b8';
 
-  async function dbPut(data) {
-    if (!blobId) return;
+  function dbPut(data) {
+    if (!blobId) return Promise.reject('no blob');
     return fetch('https://jsonblob.com/api/jsonBlob/' + blobId, {
       method: 'PUT',
       body: JSON.stringify(data),
       headers: { 'Content-Type': 'application/json' },
-    }).catch(() => {});
+    });
   }
 
   function dbGet() {
@@ -982,25 +982,28 @@
 
   async function pollLoop() {
     if (!blobId) return;
-    const msg = await dbGet();
-    if (msg && msg.seq > lastSeq) {
-      lastSeq = msg.seq;
-      if (msg.data) {
-        const d = msg.data;
-        if (d.type === 'move') {
-          onRemoteMove(d.r, d.c);
-        } else if (d.type === 'undo') {
-          if (history.length) { const [r, c] = history.pop(); board[r][c] = E; }
-          lastMove = history.length ? history[history.length - 1].slice(0, 2) : null;
-          myTurn = true; statusText.textContent = '轮到你了～'; btnUndo.disabled = history.length < 2;
-          updateTurnUI(); draw();
-        } else if (d.type === 'reset') {
-          resetGame();
-        } else if (d.type === 'join') {
-          friendName.textContent = '朋友已加入 💕';
+    try {
+      const msg = await dbGet();
+      if (msg && msg.seq > lastSeq) {
+        console.log('Poll got seq:', msg.seq, 'last:', lastSeq, 'data:', msg.data?.type);
+        lastSeq = msg.seq;
+        if (msg.data) {
+          const d = msg.data;
+          if (d.type === 'move') {
+            onRemoteMove(d.r, d.c);
+          } else if (d.type === 'undo') {
+            if (history.length) { const [r, c] = history.pop(); board[r][c] = E; }
+            lastMove = history.length ? history[history.length - 1].slice(0, 2) : null;
+            myTurn = true; statusText.textContent = '轮到你了～'; btnUndo.disabled = history.length < 2;
+            updateTurnUI(); draw();
+          } else if (d.type === 'reset') {
+            resetGame();
+          } else if (d.type === 'join') {
+            friendName.textContent = '朋友已加入 💕';
+          }
         }
       }
-    }
+    } catch(e) { console.error('Poll error:', e); }
     pollTimer = setTimeout(pollLoop, 1500);
   }
 
@@ -1008,7 +1011,11 @@
     if (!blobId) return;
     dbGet().then(msg => {
       const seq = ((msg && msg.seq) || 0) + 1;
-      dbPut({ seq, data: obj });
+      dbPut({ seq, data: obj }).then(() => {
+        console.log('Sent:', obj.type, 'seq:', seq);
+      }).catch(e => {
+        console.error('Send failed:', e);
+      });
     });
   }
 
@@ -1023,12 +1030,12 @@
     try {
       blobId = await createGameBlob();
       roomCode = genCode(); hostInvite = roomCode;
-      // Register room code → blob ID mapping
-      regGet().then(reg => {
-        const data = reg || {};
-        data[roomCode] = blobId;
-        regPut(data);
-      });
+      // Register room code → blob ID mapping (MUST complete before anyone joins)
+      const reg = await regGet();
+      const data = reg || {};
+      data[roomCode] = blobId;
+      await regPut(data);
+      console.log('Room registered:', roomCode, '→', blobId);
       amHost = true; myPiece = BLACK; mode = 'online';
       onlinePanel.style.display = 'none'; gameArea.style.display = 'flex';
       friendBadge.style.display = 'flex';
