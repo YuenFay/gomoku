@@ -1106,11 +1106,11 @@
     });
   };
 
-  window.finishHost = function() {
+  window.finishHost = async function() {
     const ans = $('answerInput').value.trim();
     if (!ans) { $('onlineErr').textContent = '请粘贴朋友的回复码'; return; }
     try {
-      const remoteDesc = unpackSDP(ans);
+      const remoteDesc = await unpackSDP(ans);
       pc.setRemoteDescription(new RTCSessionDescription(remoteDesc)).then(() => {
         $('onlineErr').textContent = '连接中…（最长等待30秒）';
         connTimeout = setTimeout(() => {
@@ -1124,11 +1124,11 @@
     } catch(e) { $('onlineErr').textContent = '回复码格式不对'; }
   };
 
-  window.acceptInvite = function() {
+  window.acceptInvite = async function() {
     const inv = $('inviteInput').value.trim();
     if (!inv) { $('onlineErr').textContent = '请先粘贴朋友的邀请码'; return; }
     try {
-      const remoteDesc = unpackSDP(inv);
+      const remoteDesc = await unpackSDP(inv);
       amHost = false; myPiece = WHITE; mode = 'online';
       startGather('guest');
 
